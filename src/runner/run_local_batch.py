@@ -24,10 +24,10 @@ from src.pipelines.build_metrics import (
     build_venue_neutral_counts,
 )
 
-
 # -------------------------
 # Run logging
 # -------------------------
+
 
 @dataclass
 class RunLog:
@@ -61,6 +61,7 @@ def write_run_log(log: RunLog, logs_dir: str = "logs") -> str:
 # Validation helpers
 # -------------------------
 
+
 def run_check(
     *,
     name: str,
@@ -73,7 +74,11 @@ def run_check(
         fn()
         log.validations[name] = {"result": "PASS", "severity": severity}
     except Exception as e:
-        log.validations[name] = {"result": "FAIL", "severity": severity, "error": repr(e)}
+        log.validations[name] = {
+            "result": "FAIL",
+            "severity": severity,
+            "error": repr(e),
+        }
         if severity == "HARD":
             raise
 
@@ -81,6 +86,7 @@ def run_check(
 # -------------------------
 # Staged publish helpers
 # -------------------------
+
 
 def atomic_publish_dir(tmp_dir: Path, final_dir: Path) -> None:
     final_dir.parent.mkdir(parents=True, exist_ok=True)
@@ -106,6 +112,7 @@ def atomic_publish_dir(tmp_dir: Path, final_dir: Path) -> None:
 # -------------------------
 # Runner
 # -------------------------
+
 
 def main() -> int:
     run_id = new_run_id()
@@ -148,11 +155,15 @@ def main() -> int:
         # 3.1) Reconciliation invariant
         run_check(
             name="reconciliation_event_count_preserved",
-            fn=lambda: (_ for _ in ()).throw(
-                ValueError(
-                    f"events row count changed: raw={len(raw_events)} events={len(events)}"
+            fn=lambda: (
+                (_ for _ in ()).throw(
+                    ValueError(
+                        f"events row count changed: raw={len(raw_events)} events={len(events)}"
+                    )
                 )
-            ) if len(events) != len(raw_events) else None,
+                if len(events) != len(raw_events)
+                else None
+            ),
             log=log,
             severity="HARD",
         )
@@ -192,15 +203,21 @@ def main() -> int:
         tmp_metrics_dir.mkdir(parents=True, exist_ok=True)
 
         team_outcomes.to_parquet(tmp_metrics_dir / "team_outcomes.parquet", index=False)
-        season_summaries.to_parquet(tmp_metrics_dir / "season_summaries.parquet", index=False)
-        venue_neutral_counts.to_parquet(tmp_metrics_dir / "venue_neutral_counts.parquet", index=False)
+        season_summaries.to_parquet(
+            tmp_metrics_dir / "season_summaries.parquet", index=False
+        )
+        venue_neutral_counts.to_parquet(
+            tmp_metrics_dir / "venue_neutral_counts.parquet", index=False
+        )
 
         atomic_publish_dir(tmp_metrics_dir, final_metrics_dir)
 
         log.outputs = {
             "team_outcomes": str(final_metrics_dir / "team_outcomes.parquet"),
             "season_summaries": str(final_metrics_dir / "season_summaries.parquet"),
-            "venue_neutral_counts": str(final_metrics_dir / "venue_neutral_counts.parquet"),
+            "venue_neutral_counts": str(
+                final_metrics_dir / "venue_neutral_counts.parquet"
+            ),
         }
 
         log.status = "SUCCESS"

@@ -4,7 +4,7 @@ import pandas as pd
 
 
 def transform_events(raw_events: pd.DataFrame) -> pd.DataFrame:
-   
+
     df = raw_events.copy()
 
     df["schedule_date"] = pd.to_datetime(df["schedule_date"], errors="coerce")
