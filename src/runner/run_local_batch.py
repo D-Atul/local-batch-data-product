@@ -1,32 +1,37 @@
 from __future__ import annotations
 
+import argparse
 import json
 import os
 import shutil
 import uuid
-from dataclasses import dataclass, asdict
+from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Callable, Any
+from typing import Any, Callable
 
 import pandas as pd
 
-from src.contracts.raw_events_contract import validate_raw_events
 from src.contracts.metrics_contracts import (
-    validate_team_outcomes,
     validate_season_summaries,
+    validate_team_outcomes,
     validate_venue_neutral_counts,
 )
-from src.pipelines.transform_events import transform_events
+from src.contracts.raw_events_contract import (
+    validate_raw_guardrails,  # Stage 1: RAW guardrails (pre-transform)
+    validate_raw_events,      # Stage 2: CURATED contract (post-transform)
+)
 from src.pipelines.build_metrics import (
-    build_team_outcomes,
     build_season_summaries,
+    build_team_outcomes,
     build_venue_neutral_counts,
 )
+from src.pipelines.transform_events import transform_events
 
-# -------------------------
+
+# =========================
 # Run logging
-# -------------------------
+# =========================
 
 
 @dataclass
@@ -57,11 +62,6 @@ def write_run_log(log: RunLog, logs_dir: str = "logs") -> str:
     return str(path)
 
 
-# -------------------------
-# Validation helpers
-# -------------------------
-
-
 def run_check(
     *,
     name: str,
@@ -74,18 +74,14 @@ def run_check(
         fn()
         log.validations[name] = {"result": "PASS", "severity": severity}
     except Exception as e:
-        log.validations[name] = {
-            "result": "FAIL",
-            "severity": severity,
-            "error": repr(e),
-        }
+        log.validations[name] = {"result": "FAIL", "severity": severity, "error": repr(e)}
         if severity == "HARD":
             raise
 
 
-# -------------------------
-# Staged publish helpers
-# -------------------------
+# =========================
+# Publish helper (staged)
+# =========================
 
 
 def atomic_publish_dir(tmp_dir: Path, final_dir: Path) -> None:
@@ -109,14 +105,46 @@ def atomic_publish_dir(tmp_dir: Path, final_dir: Path) -> None:
         shutil.rmtree(backup_old)
 
 
-# -------------------------
+# =========================
+# CLI
+# =========================
+
+
+def build_arg_parser() -> argparse.ArgumentParser:
+    p = argparse.ArgumentParser(
+        prog="python -m src.runner.run_local_batch",
+        description="Run NFL Local Batch pipeline (raw guardrails -> transform -> curated contract -> metrics).",
+    )
+    p.add_argument(
+        "--input_csv",
+        default="raw_data/spreadspoke_scores.csv",
+        help="Path to raw input CSV (default: raw_data/spreadspoke_scores.csv)",
+    )
+    p.add_argument(
+        "--outputs_dir",
+        default="outputs",
+        help="Base directory for outputs (default: outputs)",
+    )
+    p.add_argument(
+        "--logs_dir",
+        default="logs",
+        help="Directory for run logs (default: logs)",
+    )
+    return p
+
+
+# =========================
 # Runner
-# -------------------------
+# =========================
 
 
 def main() -> int:
+    args = build_arg_parser().parse_args()
+
     run_id = new_run_id()
-    input_path = "raw_data/spreadspoke_scores.csv"
+    input_path = args.input_csv
+    outputs_root = Path(args.outputs_dir)
+    logs_dir = args.logs_dir
 
     log = RunLog(
         run_id=run_id,
@@ -130,35 +158,40 @@ def main() -> int:
         error=None,
     )
 
-    outputs_root = Path("outputs")
     final_metrics_dir = outputs_root / "metrics"
     tmp_run_root = outputs_root / f".tmp_run_{run_id}"
     tmp_metrics_dir = tmp_run_root / "metrics"
 
     try:
+        # -------------------------
         # 1) Ingest
+        # -------------------------
         raw_events = pd.read_csv(input_path)
         log.row_counts["raw_events"] = int(len(raw_events))
 
-        # 2) Validate
+        # -------------------------
+        # 2) Raw validation (Stage 1: guardrails, pre-transform)
+        # -------------------------
         run_check(
-            name="raw_events_contract",
-            fn=lambda: validate_raw_events(raw_events),
+            name="raw_guardrails",
+            fn=lambda: validate_raw_guardrails(raw_events),
             log=log,
             severity="HARD",
         )
 
-        # 3) Transform
+        # -------------------------
+        # 3) Transform / Curate
+        # -------------------------
         events = transform_events(raw_events)
-        log.row_counts["events"] = int(len(events))
+        log.row_counts["events_curated"] = int(len(events))
 
-        # 3.1) Reconciliation invariant
+        # Optional invariant: row-count preserved by transform
         run_check(
             name="reconciliation_event_count_preserved",
             fn=lambda: (
                 (_ for _ in ()).throw(
                     ValueError(
-                        f"events row count changed: raw={len(raw_events)} events={len(events)}"
+                        f"events row count changed: raw={len(raw_events)} curated={len(events)}"
                     )
                 )
                 if len(events) != len(raw_events)
@@ -168,7 +201,19 @@ def main() -> int:
             severity="HARD",
         )
 
-        # 4) Build metrics
+        # -------------------------
+        # 4) Curated validation (Stage 2: strict curated contract, post-transform)
+        # -------------------------
+        run_check(
+            name="curated_events_contract",
+            fn=lambda: validate_raw_events(events),
+            log=log,
+            severity="HARD",
+        )
+
+        # -------------------------
+        # 5) Build metrics
+        # -------------------------
         team_outcomes = build_team_outcomes(events)
         season_summaries = build_season_summaries(events)
         venue_neutral_counts = build_venue_neutral_counts(events)
@@ -177,7 +222,9 @@ def main() -> int:
         log.row_counts["season_summaries"] = int(len(season_summaries))
         log.row_counts["venue_neutral_counts"] = int(len(venue_neutral_counts))
 
-        # 5) Validate outputs
+        # -------------------------
+        # 6) Final validation (output contracts)
+        # -------------------------
         run_check(
             name="team_outcomes_contract",
             fn=lambda: validate_team_outcomes(team_outcomes),
@@ -197,15 +244,15 @@ def main() -> int:
             severity="HARD",
         )
 
-        # 6) Publish outputs (staged, no partial publish)
+        # -------------------------
+        # 7) Publish + write logs (staged, no partial publish)
+        # -------------------------
         if tmp_run_root.exists():
             shutil.rmtree(tmp_run_root)
         tmp_metrics_dir.mkdir(parents=True, exist_ok=True)
 
         team_outcomes.to_parquet(tmp_metrics_dir / "team_outcomes.parquet", index=False)
-        season_summaries.to_parquet(
-            tmp_metrics_dir / "season_summaries.parquet", index=False
-        )
+        season_summaries.to_parquet(tmp_metrics_dir / "season_summaries.parquet", index=False)
         venue_neutral_counts.to_parquet(
             tmp_metrics_dir / "venue_neutral_counts.parquet", index=False
         )
@@ -215,14 +262,12 @@ def main() -> int:
         log.outputs = {
             "team_outcomes": str(final_metrics_dir / "team_outcomes.parquet"),
             "season_summaries": str(final_metrics_dir / "season_summaries.parquet"),
-            "venue_neutral_counts": str(
-                final_metrics_dir / "venue_neutral_counts.parquet"
-            ),
+            "venue_neutral_counts": str(final_metrics_dir / "venue_neutral_counts.parquet"),
         }
 
         log.status = "SUCCESS"
         log.finished_at_utc = utc_now_iso()
-        write_run_log(log)
+        write_run_log(log, logs_dir=logs_dir)
 
         if tmp_run_root.exists():
             shutil.rmtree(tmp_run_root)
@@ -233,7 +278,7 @@ def main() -> int:
         log.status = "FAILED"
         log.error = repr(e)
         log.finished_at_utc = utc_now_iso()
-        write_run_log(log)
+        write_run_log(log, logs_dir=logs_dir)
 
         if tmp_run_root.exists():
             shutil.rmtree(tmp_run_root)

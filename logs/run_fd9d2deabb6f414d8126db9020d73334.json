@@ -1,23 +1,27 @@
 {
-  "run_id": "c547f0fcc34940d7b64c71c01c0ff19c",
-  "started_at_utc": "2026-02-08T17:25:02.667914+00:00",
-  "finished_at_utc": "2026-02-08T17:25:02.766368+00:00",
+  "run_id": "fd9d2deabb6f414d8126db9020d73334",
+  "started_at_utc": "2026-02-27T17:57:53.503347+00:00",
+  "finished_at_utc": "2026-02-27T17:57:53.682735+00:00",
   "inputs": {
     "events": "raw_data/spreadspoke_scores.csv"
   },
   "row_counts": {
     "raw_events": 14358,
-    "events": 14358,
+    "events_curated": 14358,
     "team_outcomes": 1774,
     "season_summaries": 60,
     "venue_neutral_counts": 60
   },
   "validations": {
-    "raw_events_contract": {
+    "raw_guardrails_required_columns": {
       "result": "PASS",
       "severity": "HARD"
     },
     "reconciliation_event_count_preserved": {
+      "result": "PASS",
+      "severity": "HARD"
+    },
+    "curated_events_contract": {
       "result": "PASS",
       "severity": "HARD"
     },
