@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import pandas as pd
-import pandera.pandas as pa
+import pandera as pa
 from pandera import Column, DataFrameSchema, Check
 
 
