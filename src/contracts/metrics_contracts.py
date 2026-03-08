@@ -1,5 +1,5 @@
 from __future__ import annotations
-import pandera.python as pa
+import pandera as pa
 import pandera as pa
 
 from pandera import Column, DataFrameSchema, Check
