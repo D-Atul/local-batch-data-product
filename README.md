@@ -1,179 +1,162 @@
 # NFL Local Batch Data Product
 
-Version: v1.1 (Hardening In Progress)
+A contract-first local batch pipeline that processes historical NFL game data into validated analytical datasets with deterministic execution, explicit data validation, and run-level evidence.
 
 ---
 
-## Overview
+# Overview
 
-This project implements a deterministic local batch data product over historical NFL game data.
+This project demonstrates how a small batch data pipeline can be built with production-style engineering discipline while running locally.
 
-The pipeline validates raw inputs against an explicit contract, applies controlled transformations, computes season-level metrics, and publishes curated outputs along with an auditable run log.
+The pipeline ingests raw NFL game data, validates the input through explicit data contracts, transforms the dataset into curated events, computes analytical metrics, and publishes reproducible outputs.
 
-The goal is reliability and reproducibility — not analytics exploration.
+Each run produces a run log that records execution metadata and validation outcomes, providing traceability and audit-style evidence of pipeline behavior.
 
----
+The goal of the project is to demonstrate practical data engineering patterns such as:
 
-## Product Guarantees
-
-The system guarantees:
-
-- **Contract-first validation** of raw inputs using explicit schema rules
-- **Fail-fast behaviour** on validation or transformation violations
-- **Row-count preservation** during transformation
-- **Deterministic metric computation**
-- **Atomic publish of outputs**
-- **Structured run logging for auditability**
-- **Overwrite-based rerun behaviour (idempotent at run level)**
-
-If validation fails, no partial outputs are considered valid.
+* contract-first data validation
+* deterministic batch processing
+* explicit transformation stages
+* reproducible analytical outputs
+* run-level execution evidence
+* automated test validation via CI
 
 ---
 
-## Non-Goals
+# Architecture
 
-This project does not:
+The pipeline architecture is shown below.
 
-- Perform forecasting or prediction
-- Generate rankings or recommendations
-- Provide betting logic
-- Modify or silently repair corrupted data
-- Perform cross-era franchise normalization
+![Pipeline Architecture](docs/architecture.png)
 
-It is a data product, not an analytics notebook.
+The system follows a contract-first batch pipeline design where data moves through clearly defined stages with validation gates between them.
 
----
+Key stages include:
 
-## Architecture
-
-Pipeline stages:
-
-1. Raw CSV ingestion
-2. Raw contract validation
-3. Controlled transformation
-4. Reconciliation check (row preservation)
-5. Metric computation
-6. Metric contract validation
-7. Atomic publish to output directory
-8. Structured JSON run log emission
-
-Data flow:
-
-```
-Raw → Validate → Transform → Reconcile → Metrics → Validate → Publish → Log
-```
+* raw input validation
+* event transformation
+* curated dataset validation
+* metric computation
+* output validation
+* run logging and evidence generation
 
 ---
 
-## How to Run
-
-From project root:
-
-```bash
-python -m src.runner.run_local_batch
-```
-
-> Next version will introduce CLI argument support.
-
----
-
-## Outputs
-
-Outputs are written to the `outputs/` directory:
-
-### 1. `team_outcomes.parquet`
-
-Grain: `(team, season)`
-
-Includes:
-- `games_played`
-- `wins`
-- `losses`
-- `ties`
-- `points_for`
-- `points_against`
-
-### 2. `season_summaries.parquet`
-
-Grain: `(season)`
-
-Includes:
-- `total_games`
-- `playoff_games`
-- `regular_games`
-
-### 3. `venue_neutral_counts.parquet`
-
-Grain: `(season)`
-
-Includes:
-- `neutral_site_games`
-
-### 4. Run Log
-
-Each run produces a structured JSON log containing:
-
-- `run_id`
-- `input row count`
-- `output row counts`
-- `status` (`SUCCESS` / `FAILED`)
-- `error message` (if applicable)
-
-This provides minimal but sufficient audit traceability.
-
----
-
-## Determinism & Rerun Behaviour
-
-- Outputs are recomputed from raw input each run
-- Previous outputs are overwritten
-- No hidden state is maintained
-- Identical input produces identical output
-
-The system is deterministic by logic, not infrastructure tricks.
-
----
-
-## Failure Modes
-
-The pipeline fails when:
-
-- Raw contract validation fails
-- Transformation drops or duplicates rows
-- Metric contract validation fails
-- Unexpected runtime exception occurs
-
-On failure:
-
-- Status is marked `FAILED` in run log
-- No partially validated dataset is considered valid
-
----
-
-## Repository Structure
+# Project Structure
 
 ```
 src/
-  contracts/
-  metrics/
-  runner/
-framework/
-data/raw/
-logs/
-outputs/
-evidence/EvidenceNB.ipynb
-requirements.txt
+  contracts/        data validation rules
+  pipelines/        transformation and metric logic
+  runner/           pipeline orchestration entrypoint
+
+tests/              validation and pipeline tests
+framework/          design framework and pipeline guarantees
+data/raw/           raw dataset used by the pipeline
+outputs/            generated analytical metric tables
+logs/               run logs generated during pipeline execution
+evidence/           notebook used to inspect outputs and run logs
+docs/               architecture diagram and documentation assets
 ```
 
 ---
 
-## Version History
+# How To Run
 
-| Version | Description |
-|---------|-------------|
-| v1.0.0 | Baseline deterministic batch pipeline |
-| v1.1.0 | Hardening phase (tests, dependency pinning, CLI, CI) |
+Clone the repository.
+
+```
+git clone <repo-url>
+cd nfl-local-batch-data-product
+```
+
+Create a virtual environment.
+
+```
+python -m venv .venv
+source .venv/bin/activate
+```
+
+Install dependencies.
+
+```
+pip install -r requirements.txt
+```
+
+Run the pipeline.
+
+```
+python -m src.runner.run_local_batch
+```
 
 ---
 
-This repository is part of a broader portfolio demonstrating contract-first, audit-aware data engineering practices suitable for production-style batch systems.
+# What This Produces
+
+After a successful run the pipeline generates analytical datasets:
+
+```
+outputs/metrics/
+
+season_summaries.parquet
+team_outcomes.parquet
+venue_neutral_counts.parquet
+```
+
+Each run also produces execution evidence:
+
+```
+logs/run_<timestamp>.json
+```
+
+The run log records:
+
+* pipeline start and completion timestamps
+* validation results
+* row counts across stages
+* output artifacts produced
+
+---
+
+# Evidence Inspection
+
+The notebook below can be used to inspect pipeline results.
+
+```
+evidence/evidence_notebook.ipynb
+```
+
+The notebook allows quick inspection of:
+
+* generated metric tables
+* output schema validation
+* run log metadata
+
+---
+
+# Engineering Features
+
+This repository demonstrates several production-oriented engineering practices:
+
+* contract-first data validation
+* deterministic local batch execution
+* structured pipeline orchestration
+* run-level logging and evidence generation
+* automated tests using `pytest`
+* continuous integration using GitHub Actions
+
+---
+
+# Framework
+
+The `framework/` directory contains the design framework that defines the execution guarantees and architectural rules used to build this data product.
+
+The framework documents the intended behavior of the pipeline independently from the implementation code.
+
+---
+
+# Purpose of the Project
+
+The goal of this repository is to demonstrate how a reproducible data pipeline can be structured using clear validation boundaries, explicit transformation stages, and deterministic outputs.
+
+The project focuses on engineering discipline rather than scale, showing how production-style patterns can be applied even in a small local batch system.
